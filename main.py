@@ -54,13 +54,16 @@ def scrape_ted_tenders():
         for item in soup.find_all('tr')[:15]:
             cols = item.find_all('td')
             if len(cols) >= 3:
-                title = cols[0].text.strip()
+                title_elem = cols[0].find('a')
+                title = title_elem.text.strip() if title_elem else cols[0].text.strip()
+                link = title_elem.get('href') if title_elem else url
                 deadline = cols[2].text.strip() if len(cols) > 2 else "N/A"
 
                 if any(keyword.lower() in title.lower() for keyword in KEYWORDS):
                     tenders.append({
                         'title': title[:80],
                         'deadline': deadline,
+                        'url': link if link.startswith('http') else url + link,
                         'source': 'TED (Europa)'
                     })
 
@@ -82,10 +85,12 @@ def scrape_gazzetta_ufficiale():
 
         for item in soup.find_all('a', limit=10):
             text = item.text.strip()
+            link = item.get('href', url)
             if any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                 tenders.append({
                     'title': text[:80],
                     'deadline': 'Consultare Gazzetta',
+                    'url': link if link.startswith('http') else url + link,
                     'source': 'Gazzetta Ufficiale'
                 })
 
@@ -107,12 +112,15 @@ def scrape_anac_tenders():
 
         for item in soup.find_all('div', class_='news-item', limit=10):
             text = item.get_text()
+            link_elem = item.find('a')
+            link = link_elem.get('href') if link_elem else url
             if any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                 title = item.find('h3')
                 if title:
                     tenders.append({
                         'title': title.text.strip()[:80],
                         'deadline': 'Consultare ANAC',
+                        'url': link if link.startswith('http') else url + link,
                         'source': 'ANAC'
                     })
 
@@ -136,10 +144,12 @@ def scrape_all_regional_portals():
             # Extract links and text
             for item in soup.find_all('a', limit=8):
                 text = item.text.strip()
+                link = item.get('href', url)
                 if text and any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                     all_regional_tenders.append({
                         'title': text[:80],
                         'deadline': 'Consultare Regione',
+                        'url': link if link.startswith('http') else url + link,
                         'source': f'Bandi {region}'
                     })
         except Exception as e:
@@ -160,10 +170,12 @@ def scrape_roga_italia():
 
         for item in soup.find_all('a', limit=10):
             text = item.text.strip()
+            link = item.get('href', url)
             if any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                 tenders.append({
                     'title': text[:80],
                     'deadline': 'Consultare ROGA Italia',
+                    'url': link if link.startswith('http') else url + link,
                     'source': 'ROGA Italia'
                 })
 
@@ -185,10 +197,12 @@ def scrape_bandi_gare_dappalto():
 
         for item in soup.find_all('a', limit=15):
             text = item.text.strip()
+            link = item.get('href', url)
             if text and any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                 tenders.append({
                     'title': text[:80],
                     'deadline': 'Consultare BandiGareDappalto',
+                    'url': link if link.startswith('http') else url + link,
                     'source': 'BandiGareDappalto (Italia)'
                 })
 
@@ -210,10 +224,12 @@ def scrape_banchedati():
 
         for item in soup.find_all('a', limit=15):
             text = item.text.strip()
+            link = item.get('href', url)
             if text and any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                 tenders.append({
                     'title': text[:80],
                     'deadline': 'Consultare Banchedati',
+                    'url': link if link.startswith('http') else url + link,
                     'source': 'Banchedati (40K+ bandi/mese)'
                 })
 
@@ -235,10 +251,12 @@ def scrape_telemat():
 
         for item in soup.find_all('a', limit=15):
             text = item.text.strip()
+            link = item.get('href', url)
             if text and any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                 tenders.append({
                     'title': text[:80],
                     'deadline': 'Consultare Telemat',
+                    'url': link if link.startswith('http') else url + link,
                     'source': 'Telemat (Appalti Pubblici)'
                 })
 
@@ -260,12 +278,15 @@ def scrape_mepa_consip():
 
         for item in soup.find_all('tr', limit=10):
             text = item.get_text()
+            link_elem = item.find('a')
+            link = link_elem.get('href') if link_elem else url
             if any(keyword.lower() in text.lower() for keyword in KEYWORDS):
                 cols = item.find_all('td')
                 if len(cols) > 0:
                     tenders.append({
                         'title': cols[0].text.strip()[:80],
                         'deadline': 'Consultare MEPA',
+                        'url': link if link.startswith('http') else url + link,
                         'source': 'MEPA/Consip'
                     })
 
@@ -291,7 +312,7 @@ def send_telegram_message(message):
         return False
 
 def format_tender_message(all_tenders):
-    """Format tenders into Telegram message"""
+    """Format tenders into Telegram message with clickable links"""
     if not all_tenders:
         return "🔔 Nessun bando nuovo trovato oggi per l'Italia."
 
@@ -305,11 +326,16 @@ def format_tender_message(all_tenders):
             sources[source] = []
         sources[source].append(tender)
 
-    # Format by source
+    # Format by source with clickable links
     for source, items in sources.items():
         message += f"<b>📌 {source}</b>\n"
         for i, tender in enumerate(items[:3], 1):
-            message += f"  {i}. {tender['title']}\n"
+            # Create clickable link - title as link, deadline below
+            title = tender['title']
+            url = tender['url']
+            # Escape special characters in URL for safety
+            safe_url = url.replace('&', '&amp;') if '&' in url else url
+            message += f"  {i}. <a href=\"{safe_url}\">{title}</a>\n"
             message += f"     📅 {tender['deadline']}\n"
         if len(items) > 3:
             message += f"  ... e {len(items) - 3} altri\n"
